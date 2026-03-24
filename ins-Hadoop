@@ -1,42 +1,42 @@
 #!/bin/bash
 
-set -e   # stop on error
+set -e
 
 echo "🔄 Updating system..."
 sudo apt update -y
 
-echo "📦 Installing Java..."
-sudo apt install openjdk-8-jdk -y
-
-echo "📦 Installing SSH..."
-sudo apt install ssh -y
+echo "📦 Installing Java & SSH..."
+sudo apt install openjdk-8-jdk ssh -y
 
 echo "👤 Creating Hadoop user..."
 sudo addgroup hadoop || true
-sudo adduser --disabled-password --gecos "" hduser || true
+sudo id -u hduser &>/dev/null || sudo adduser --disabled-password --gecos "" hduser
 sudo usermod -aG hadoop hduser
 
-echo "🔐 Switching to hduser..."
-su - hduser << 'EOF'
+echo "🔑 Setting up SSH for hduser..."
+sudo -u hduser bash << 'EOF'
 
-echo "🔑 Setting up SSH..."
-ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+
+ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa || true
 cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
+
 ssh -o StrictHostKeyChecking=no localhost exit
 
 echo "📥 Downloading Hadoop..."
 cd ~
 
-# safer download with resume
 wget -c https://archive.apache.org/dist/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz
 
 echo "📦 Extracting Hadoop..."
+rm -rf hadoop
 tar -xvzf hadoop-3.3.6.tar.gz
 mv hadoop-3.3.6 hadoop
 
 echo "⚙️ Setting environment variables..."
-cat >> ~/.bashrc << EOL
+grep -q HADOOP_HOME ~/.bashrc || cat >> ~/.bashrc << EOL
 export HADOOP_HOME=/home/hduser/hadoop
 export PATH=\$PATH:\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin
 export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
@@ -49,10 +49,8 @@ mkdir -p ~/hadoopdata/hdfs/namenode
 mkdir -p ~/hadoopdata/hdfs/datanode
 
 echo "⚙️ Configuring Hadoop..."
-
 cd \$HADOOP_HOME/etc/hadoop
 
-# core-site.xml
 cat > core-site.xml << EOL
 <configuration>
   <property>
@@ -62,7 +60,6 @@ cat > core-site.xml << EOL
 </configuration>
 EOL
 
-# hdfs-site.xml
 cat > hdfs-site.xml << EOL
 <configuration>
   <property>
@@ -72,7 +69,6 @@ cat > hdfs-site.xml << EOL
 </configuration>
 EOL
 
-# mapred-site.xml
 cp mapred-site.xml.template mapred-site.xml
 cat > mapred-site.xml << EOL
 <configuration>
@@ -83,7 +79,6 @@ cat > mapred-site.xml << EOL
 </configuration>
 EOL
 
-# yarn-site.xml
 cat > yarn-site.xml << EOL
 <configuration>
   <property>
