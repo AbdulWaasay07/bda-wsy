@@ -1,0 +1,105 @@
+#!/bin/bash
+
+set -e   # stop on error
+
+echo "🔄 Updating system..."
+sudo apt update -y
+
+echo "📦 Installing Java..."
+sudo apt install openjdk-8-jdk -y
+
+echo "📦 Installing SSH..."
+sudo apt install ssh -y
+
+echo "👤 Creating Hadoop user..."
+sudo addgroup hadoop || true
+sudo adduser --disabled-password --gecos "" hduser || true
+sudo usermod -aG hadoop hduser
+
+echo "🔐 Switching to hduser..."
+su - hduser << 'EOF'
+
+echo "🔑 Setting up SSH..."
+ssh-keygen -t rsa -P "" -f ~/.ssh/id_rsa
+cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+ssh -o StrictHostKeyChecking=no localhost exit
+
+echo "📥 Downloading Hadoop..."
+cd ~
+
+# safer download with resume
+wget -c https://archive.apache.org/dist/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz
+
+echo "📦 Extracting Hadoop..."
+tar -xvzf hadoop-3.3.6.tar.gz
+mv hadoop-3.3.6 hadoop
+
+echo "⚙️ Setting environment variables..."
+cat >> ~/.bashrc << EOL
+export HADOOP_HOME=/home/hduser/hadoop
+export PATH=\$PATH:\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+EOL
+
+source ~/.bashrc
+
+echo "📁 Creating HDFS directories..."
+mkdir -p ~/hadoopdata/hdfs/namenode
+mkdir -p ~/hadoopdata/hdfs/datanode
+
+echo "⚙️ Configuring Hadoop..."
+
+cd \$HADOOP_HOME/etc/hadoop
+
+# core-site.xml
+cat > core-site.xml << EOL
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://localhost:9000</value>
+  </property>
+</configuration>
+EOL
+
+# hdfs-site.xml
+cat > hdfs-site.xml << EOL
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+</configuration>
+EOL
+
+# mapred-site.xml
+cp mapred-site.xml.template mapred-site.xml
+cat > mapred-site.xml << EOL
+<configuration>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+</configuration>
+EOL
+
+# yarn-site.xml
+cat > yarn-site.xml << EOL
+<configuration>
+  <property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+  </property>
+</configuration>
+EOL
+
+echo "🧱 Formatting Namenode..."
+hdfs namenode -format
+
+echo "🚀 Starting Hadoop..."
+start-dfs.sh
+start-yarn.sh
+
+echo "✅ Hadoop installation completed!"
+
+EOF
